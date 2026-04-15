@@ -12,8 +12,17 @@ class BNH(ConstraintProblem):
     we split them into 6 for ease of implementation.
     """
     def __init__(self, batch_size: int = 64, device: str = "mps", n_jobs: int = 1):
-        contexts = torch.tensor([[0, 5, 0, 3]], dtype=torch.float32)
+        # contexts = torch.tensor([[0, 5, 0, 3]], dtype=torch.float32)
+        contexts = self.construct_context()
         super().__init__(contexts, batch_size=batch_size, device=device, outcomes=["f1", "f2"], n_jobs=n_jobs)
+
+    def construct_context(self) -> torch.Tensor:
+        contexts = []
+        for i in range(5):
+            context = [i, i+1, 0, 3]
+            contexts.append(context)
+        contexts = torch.tensor(contexts, dtype=torch.float32)
+        return contexts
 
     # pylint:disable=missing-function-docstring
     # pylint: disable=invalid-name
@@ -83,6 +92,10 @@ class BNH(ConstraintProblem):
     # pylint:enable=missing-function-docstring
 
     def compute_outcomes(self, _, actions: torch.Tensor) -> torch.Tensor:
+        """
+        Actions: N x A
+        f: N x O
+        """
         f1 = self.f1(actions)
         f2 = self.f2(actions)
 
@@ -98,12 +111,27 @@ class BNH(ConstraintProblem):
         g = torch.cat([g1, g2, g3, g4], dim=1)
         return g
 
-    def get_optimal(self, n_points: int = 100) -> torch.Tensor:
+    def get_optimal(self, contexts: torch.Tensor = None, n_points: int = 100) -> torch.Tensor:
         """
+        Takes in a set of contexts and returns the optimal actions for each context.
         x1 = x2 while 0 <= x1 <= 3, then x2 = 3 while 3 <= x1 <= 5
+        contexts: N x C
+        optimal: N x n_points x A
         """
-        x1 = torch.linspace(0, 5, n_points)
-        x2 = torch.where(x1 <= 3, x1, 3)
-        X = torch.stack([x1, x2], dim=1)
-        return X
+        if contexts is None:
+            contexts = self.contexts
+
+        assert (contexts[:, 0] >= 0).all() and (contexts[:, 1] <= 5).all(), \
+            "x1 must be between 0 and 5"
+        assert (contexts[:, 2] >= 0).all() and (contexts[:, 3] <= 3).all(), \
+            "x2 must be between 0 and 3"
+
+        optimal = []
+        for context in contexts:
+            x1 = torch.linspace(context[0], context[1], n_points)
+            x2 = torch.where(x1 <= 3, x1, 3)
+            optimal.append(torch.stack([x1, x2], dim=1))
+        optimal = torch.stack(optimal, dim=0)
+        return optimal
+
     # pylint:enable=invalid-name
